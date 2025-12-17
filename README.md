@@ -29,26 +29,14 @@ The robot is a differential drive chassis modified for this project.
 The "Software Lock-in" algorithm allows standard cameras to detect these beacons even in a bright room. The LEDs blink at a specific frequency (14.1 Hz), and the code uses FFT (Fast Fourier Transform) to isolate that specific frequency from background noise.
 
 <p align="center">
-  <img src="Results/Images_result_and_robot/start.jpeg" width="45%" />
-  <img src="Results/Images_result_and_robot/end.jpeg" width="45%" />
-  <br>
-  <em>The testbed setup: Left- Robot Starting Position(100 cm). Right- Ending position(200 cm,
-Active Length - 1 m) and beacons at 1.25 m from origin.</em>
-</p>
-<p align="center">
-  <img src="Results/Images_result_and_robot/start.jpeg" width="80%" />
-  <br>
-  <em>The testbed setup: Two LED beacons placed 0.4m apart serve as the absolute reference.</em>
-</p>
-<p align="center">
   <img src="Results/Images_result_and_robot/beacons.jpeg" width="80%" />
   <br>
   <em>The testbed setup: Two LED beacons placed 0.4m apart serve as the absolute reference.</em>
 </p>
 <p align="center">
-  <img src="Results/Images_result_and_robot/beacons.jpeg" width="80%" />
+  <img src="Results/Images_result_and_robot/setup_2.jpeg" width="80%" />
   <br>
-  <em>The testbed setup: Two LED beacons placed 0.4m apart serve as the absolute reference.</em>
+  <em>The testbed setup: Robot placed at 1.25m away from the beacons.</em>
 </p>
 
 ---
