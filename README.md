@@ -41,9 +41,9 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-- Copy `code/pico(Thonny)/main.py` to the MicroPython Pico as `main.py`.
+- Copy `code/pico/main.py` to the MicroPython Pico as `main.py`.
 - Upload `code/beacon_driver/beacon_driver.ino` to the Arduino.
-- Set `SERIAL_PORT` in `code/final_robot.py`, `CAM_INDEX` in both host scripts, and the calibration constants for your hardware.
+- Set `CAM_INDEX` in both host scripts for your camera.
 
 ## Run
 
@@ -53,12 +53,12 @@ Calibrate the beacon pixels:
 python code/beacons_pixel_extractor.py
 ```
 
-Press `y` and copy the printed coordinates into `CALIB_PIXEL_L` and `CALIB_PIXEL_R` in `code/final_robot.py`. Press `q` to close.
+Press `y` to print the beacon x-coordinates. Press `q` to close.
 
 Start the robot interface:
 
 ```bash
-python code/final_robot.py
+python code/final_robot.py --port <SERIAL_PORT> --calib <LEFT_X> <RIGHT_X>
 ```
 
 Keep the robot stationary until `READY!` appears.

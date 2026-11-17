@@ -1,3 +1,4 @@
+import argparse
 import sys
 import time
 import math
@@ -8,13 +9,18 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
+parser = argparse.ArgumentParser(description="VLP + EKF robot localization")
+parser.add_argument("--port", default="/dev/cu.usbmodem1101", help="Pico serial port")
+parser.add_argument("--calib", nargs=2, type=int, default=[252, 370], metavar=("LEFT_X", "RIGHT_X"),
+                    help="Beacon pixel x-coordinates from beacons_pixel_extractor.py")
+args = parser.parse_args()
+
 # Configuration
 USE_VLP = True
 
 # Calibration
 TICKS_PER_METER = 1148.0
-CALIB_PIXEL_L   = 252
-CALIB_PIXEL_R   = 370
+CALIB_PIXEL_L, CALIB_PIXEL_R = args.calib
 CALIB_DIST      = 1.25
 BEACON_WIDTH    = 0.4    # Beacon spacing (m)
 
@@ -27,9 +33,15 @@ REFLECTION_TOL = 30
 PROC_W         = 160
 PROC_H         = 120
 FLIP_CODE      = -1     # Camera mounting rotation
+FRAME_W        = 640
+FRAME_H        = 480
+CAM_FPS        = 60
+
+if not 0 <= CALIB_PIXEL_L < CALIB_PIXEL_R < FRAME_W:
+    parser.error(f"--calib needs 0 <= LEFT_X < RIGHT_X < {FRAME_W}")
 
 # Hardware
-SERIAL_PORT = "/dev/cu.usbmodem1101"
+SERIAL_PORT = args.port
 BAUD_RATE   = 115200
 CAM_INDEX   = 0
 
@@ -42,7 +54,6 @@ FOCAL_LENGTH = (px_width * CALIB_DIST) / BEACON_WIDTH
 print(f"Computed Focal Length: {FOCAL_LENGTH:.2f}")
 
 RUNNING = True
-IS_MOVING = False
 data_lock = threading.Lock()
 
 try:
@@ -146,13 +157,12 @@ class BeaconTracker:
 ekf_odom  = ExtendedKalmanFilter()
 ekf_fused = ExtendedKalmanFilter()
 
-tracker_PHYS_L = BeaconTracker((0, 255, 0))
-tracker_PHYS_R = BeaconTracker((0, 0, 255))
+tracker_L = BeaconTracker((0, 255, 0))
+tracker_R = BeaconTracker((0, 0, 255))
 
 path_odom = {'x': [], 'y': []}
 
 def sensor_loop():
-    global IS_MOVING
     last_ticks = 0.0
     gyro_bias = 0.0
     calibrated = False
@@ -187,10 +197,10 @@ def sensor_loop():
                 last_ticks = ticks
                 dist = delta / TICKS_PER_METER
 
-                IS_MOVING = abs(delta) > 0
+                is_moving = abs(delta) > 0
 
                 # Suppress gyro drift when the encoder reports no motion.
-                if not IS_MOVING:
+                if not is_moving:
                     d_theta = 0.0
                 elif abs(gz - gyro_bias) < 1.0:
                     d_theta = 0.0
@@ -206,11 +216,20 @@ def sensor_loop():
                         path_odom['x'].append(ekf_odom.x[0, 0])
                         path_odom['y'].append(ekf_odom.x[1, 0])
 
-        except Exception:
-            pass
+        except ValueError:
+            continue  # Malformed serial line
 
-threading.Thread(target=sensor_loop, daemon=True).start()
+def run_sensor_loop():
+    global RUNNING
+    try:
+        sensor_loop()
+    finally:
+        RUNNING = False
 
+threading.Thread(target=run_sensor_loop, daemon=True).start()
+
+for k in ('keymap.save', 'keymap.quit'):
+    plt.rcParams[k] = []  # Free 's' and 'q' for robot controls
 plt.ion()
 fig, ax = plt.subplots(figsize=(8, 8))
 
@@ -254,8 +273,8 @@ def detect_beacons(frame_buffer, f_idx):
         if M["m00"] > 0:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
-            rx = int(cx * (640 / PROC_W))
-            ry = int(cy * (480 / PROC_H))
+            rx = int(cx * (FRAME_W / PROC_W))
+            ry = int(cy * (FRAME_H / PROC_H))
             blobs.append((rx, ry))
 
     # Prefer upper blobs over floor reflections.
@@ -272,26 +291,21 @@ def detect_beacons(frame_buffer, f_idx):
 
     if len(clean) >= 2:
         clean.sort(key=lambda p: p[0])
-
-        cand_Phys_Right = clean[-1]
-
-        cand_Phys_Left  = clean[0]
-
-        cand_L, cand_R = cand_Phys_Left, cand_Phys_Right
+        cand_L, cand_R = clean[0], clean[-1]
 
     return cand_L, cand_R
 
 cap = cv2.VideoCapture(CAM_INDEX)
-cap.set(cv2.CAP_PROP_FPS, 60)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FPS, CAM_FPS)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 frame_buffer = np.zeros((WIN_SIZE, PROC_H, PROC_W), dtype=np.float32)
 f_idx = 0
 f_count = 0
 plot_counter = 0
-fft_freqs = np.fft.rfftfreq(WIN_SIZE, 1.0/60.0)
+fft_freqs = np.fft.rfftfreq(WIN_SIZE, 1.0 / CAM_FPS)
 target_bin = np.argmin(np.abs(fft_freqs - TARGET_FREQ))
 
 try:
@@ -321,12 +335,12 @@ try:
         if f_count >= WIN_SIZE:
             cand_L, cand_R = detect_beacons(frame_buffer, f_idx)
 
-        tracker_PHYS_L.update(cand_L)
-        tracker_PHYS_R.update(cand_R)
+        tracker_L.update(cand_L)
+        tracker_R.update(cand_R)
 
-        if USE_VLP and tracker_PHYS_L.locked and tracker_PHYS_R.locked:
-            pos_L = tracker_PHYS_L.get_smoothed_pos()
-            pos_R = tracker_PHYS_R.get_smoothed_pos()
+        if USE_VLP and tracker_L.locked and tracker_R.locked:
+            pos_L = tracker_L.get_smoothed_pos()
+            pos_R = tracker_R.get_smoothed_pos()
 
             if pos_L and pos_R:
                 uL = pos_L[0]
@@ -343,7 +357,7 @@ try:
 
                 cv2.line(frame, pos_L, pos_R, (0, 255, 0), 2)
 
-        for tr in [tracker_PHYS_L, tracker_PHYS_R]:
+        for tr in [tracker_L, tracker_R]:
             if tr.current_pos: cv2.circle(frame, tr.current_pos, 20, tr.color, 2)
 
         cv2.imshow("Robot View", frame)
@@ -370,7 +384,6 @@ finally:
     time.sleep(0.5)
 
     print("FINAL COORDINATES REPORT")
-
 
     # Snapshot current estimates; plot history is subsampled.
     with data_lock:
