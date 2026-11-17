@@ -4,17 +4,17 @@ import select
 import time
 import struct
 
-# CONFIGURATION 
+# Configuration
 L_PWM, L_DIR = 21, 20
 R_PWM, R_DIR = 27, 26
 ENC_A, ENC_B = 16, 17
 I2C_ID, SDA, SCL = 1, 2, 3
 
-# YOUR TRIMS
-YELLOW_TRIM = 0.69   
-METAL_TRIM  = 0.75  
+# Motor trim factors
+YELLOW_TRIM = 0.69
+METAL_TRIM  = 0.75
 
-# HARDWARE 
+# Hardware
 l_pwm = PWM(Pin(L_PWM)); l_pwm.freq(20000)
 l_dir = Pin(L_DIR, Pin.OUT)
 r_pwm = PWM(Pin(R_PWM)); r_pwm.freq(20000)
@@ -39,7 +39,7 @@ def read_gyro():
     except: return 0.0
 
 def set_motor(dir_pin, pwm_pin, speed):
-    # 0 = Forward, 1 = Backward 
+    # Direction pin: 0 forward, 1 backward.
     if speed >= 0:
         dir_pin.value(0)
         pwm_pin.duty_u16(int(speed * 65535))
@@ -47,7 +47,6 @@ def set_motor(dir_pin, pwm_pin, speed):
         dir_pin.value(1)
         pwm_pin.duty_u16(int(-speed * 65535))
 
-# MAIN LOOP 
 poll_obj = select.poll()
 poll_obj.register(sys.stdin, select.POLLIN)
 
@@ -56,32 +55,31 @@ target_r = 0.0
 last_cmd_time = time.ticks_ms()
 
 while True:
-    # 1. READ INPUT
     if poll_obj.poll(0):
         ch = sys.stdin.read(1)
         if ch:
-            last_cmd_time = time.ticks_ms()
-            # STEERING LOGIC
+            # Only valid commands refresh the watchdog.
+            if ch in ('w', 'x', 'a', 'd', 's', ' '):
+                last_cmd_time = time.ticks_ms()
             if ch == 'w':   # Forward
                 target_l, target_r = 0.6, 0.6
             elif ch == 'x': # Backward
                 target_l, target_r = -0.6, -0.6
-            elif ch == 'a': # Spin Left
+            elif ch == 'a': # Spin left
                 target_l, target_r = -0.5, 0.5
-            elif ch == 'd': # Spin Right
+            elif ch == 'd': # Spin right
                 target_l, target_r = 0.5, -0.5
-            elif ch == ' ': # Stop
+            elif ch in ('s', ' '): # Stop
+                target_l, target_r = 0.0, 0.0
+            else:
                 target_l, target_r = 0.0, 0.0
 
-    # 2. SAFETY WATCHDOG (Stops if key released)
+    # Stop after a command timeout.
     if time.ticks_diff(time.ticks_ms(), last_cmd_time) > 200:
         target_l, target_r = 0.0, 0.0
 
-    # 3. DRIVE
-    # Apply Trims to individual motors
     set_motor(l_dir, l_pwm, target_l * YELLOW_TRIM)
     set_motor(r_dir, r_pwm, target_r * METAL_TRIM)
 
-    # 4. SEND DATA
     print(f"{ticks},{read_gyro()}")
     time.sleep(0.05)
